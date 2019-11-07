@@ -95,17 +95,94 @@ fit %>%
   broom::tidy()
 ```
 
-## 
+## diagnostics (all about the residuals)
+
+boro against residuals
+
+```{r}
+modelr::add_residuals(nyc_airbnb, fit) %>% 
+  ggplot(aes(x = boro, y = resid)) +
+  geom_violin() + ylim(-500, 500)
+```
+
+
+stars against residuals
+
+```{r}
+modelr::add_residuals(nyc_airbnb, fit) %>% 
+  ggplot(aes(x = stars, y = resid)) +
+  geom_point() + ylim(-500, 500)
+```
+
+
+add some predictions 
+
+```{r}
+modelr::add_predictions(nyc_airbnb, fit)
+```
+
+# Nesting data
+
+Here, every increase in stars and how it affects price per boro.
+
+```{r}
+fit_interaction = 
+  lm(price ~ stars * boro, data = nyc_airbnb) %>% 
+  broom::tidy()
+
+fit_interaction
+```
 
 
 
 
+```{r}
+fit_interaction_1 = 
+  nyc_airbnb %>% 
+  lm(price ~ stars * boro + room_type * boro, data = .) %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+fit_interaction_1
+```
 
 
+Let's try to map this instead
+
+```{r}
+nyc_airbnb %>% 
+  nest(data = -boro) %>% 
+  mutate(
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(boro, results) %>% 
+  unnest(results)
+```
 
 
+```{r}
+manhattan_nest_lm_res = 
+  nyc_airbnb %>% 
+  filter(boro == "Manhattan") %>% 
+  nest(data = -neighborhood) %>% 
+  mutate(
+    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(neighborhood, results) %>% 
+  unnest(results)
+```
 
+Here we are plotting neighbrohoods in manhattan and what it would cost if we moved from a private room to a shared room. it will cost less.
 
+```{r}
+manhattan_nest_lm_res %>% 
+  filter(str_detect(term, "room_type")) %>% 
+  ggplot(aes(x = neighborhood, y = estimate)) + 
+  geom_point() + 
+  facet_wrap(~term) + 
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+```
 
 
 
