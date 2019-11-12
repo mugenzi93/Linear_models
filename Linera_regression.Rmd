@@ -287,7 +287,7 @@ rmse(wiggly_mod, train_df)
 ```
 
 
-Here, the `wiggly_mod` is doing better but is does not matter.
+Here, the `wiggly_mod` is doing better but it does not matter.
 
 
 ```{r}

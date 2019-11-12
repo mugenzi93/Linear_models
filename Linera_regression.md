@@ -410,7 +410,7 @@ rmse(wiggly_mod, train_df)
 
     ## [1] 0.2498309
 
-Here, the `wiggly_mod` is doing better but is does not matter.
+Here, the `wiggly_mod` is doing better but it does not matter.
 
 ``` r
 # Root mean squared error
