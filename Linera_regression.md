@@ -1,9 +1,9 @@
-Linear Regression
+Linear Models
 ================
 Clement Mugenzi
 11/7/2019
 
-# Some linear models
+# Linear Regression
 
 ``` r
 data("nyc_airbnb")
