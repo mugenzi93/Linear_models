@@ -293,3 +293,231 @@ manhattan_nest_lm_res %>%
 ```
 
 <img src="Linera_regression_files/figure-gfm/unnamed-chunk-14-1.png" width="90%" />
+
+# Cross Validation
+
+All about model selection. Picking variables to go in your model. know
+confounders, covariates. What belongs in the model and what does not.
+`AIC:` comparison between two nonnested models. how well does the model
+fit, and how complex the model is. and whichever of those is better
+wins. a less complex model. Checkout `BIC` too\!
+
+Questions to ask ourselves:
+
+1.  Overfitting or underfitting?
+
+2.  which model works better for future dataset.
+
+3.  Do i have high bias? high variance?
+
+4.  how complex is the model?
+
+5.  which model makes the best predictions for future datasets?
+
+**Prediction accuracy:**
+
+splitting your dataset and build the model using one dataset then
+testing the model using the second dataset. Basically, splititing the
+dataset into `train` and `test` datasets.
+
+there is also **automated variable selection** using **Lasso** or
+**regression trees**.
+
+``` r
+nonlin_df = 
+  tibble(
+    id = 1:100,
+    x = runif(100, 0, 1),
+    y = 1 - 10 * (x - .3) ^ 2 + rnorm(100, 0, .3)
+  )
+
+nonlin_df %>% 
+  ggplot(aes(x = x, y = y)) + 
+  geom_point() + theme_bw() 
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-15-1.png" width="90%" />
+
+## Training and Testing
+
+``` r
+train_df = sample_n(nonlin_df, 80)
+test_df = anti_join(nonlin_df, train_df, by = "id")
+
+ggplot(train_df, aes(x = x, y = y)) + 
+  geom_point() + 
+  geom_point(data = test_df, color = "red")
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-16-1.png" width="90%" />
+
+## fit three models of varying goodness
+
+``` r
+linear_mod = lm(y ~ x, data = train_df)
+smooth_mod = mgcv::gam(y ~ s(x), data = train_df)
+wiggly_mod = mgcv::gam(y ~ s(x, k = 30), sp = 10e-6, data = train_df)
+```
+
+lets’ look at some fits
+
+``` r
+train_df %>% 
+  add_predictions(linear_mod) %>% 
+  ggplot(aes(x = x, y = y)) + geom_point() + 
+  geom_line(aes(y = pred), color = "red")
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-18-1.png" width="90%" />
+
+``` r
+train_df %>% 
+  add_predictions(smooth_mod) %>% 
+  ggplot(aes(x = x, y = y)) + geom_point() + 
+  geom_line(aes(y = pred), color = "red")
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-19-1.png" width="90%" />
+
+``` r
+train_df %>% 
+  add_predictions(wiggly_mod) %>% 
+  ggplot(aes(x = x, y = y)) + geom_point() + 
+  geom_line(aes(y = pred), color = "red")
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-20-1.png" width="90%" />
+
+Make predictions
+
+``` r
+# Root mean squared error
+
+rmse(linear_mod, train_df)
+```
+
+    ## [1] 0.7178747
+
+``` r
+rmse(smooth_mod, train_df)
+```
+
+    ## [1] 0.2874834
+
+``` r
+rmse(wiggly_mod, train_df)
+```
+
+    ## [1] 0.2498309
+
+Here, the `wiggly_mod` is doing better but is does not matter.
+
+``` r
+# Root mean squared error
+
+rmse(linear_mod, test_df)
+```
+
+    ## [1] 0.7052956
+
+``` r
+rmse(smooth_mod, test_df)
+```
+
+    ## [1] 0.2221774
+
+``` r
+rmse(wiggly_mod, test_df)
+```
+
+    ## [1] 0.289051
+
+Therefore, the lesser the `RMSE` the better the model since errors are
+minimized. Always choose the model that test better on the `Test`
+dataset. Thus, here the `smooth_mod` is doing better.
+
+## Cross Validation using `Modelr`
+
+`cross_mc` splits the dataframe for us\!\!
+
+``` r
+cv_df = 
+  crossv_mc(nonlin_df, 100)
+cv_df
+```
+
+    ## # A tibble: 100 x 3
+    ##    train      test       .id  
+    ##    <list>     <list>     <chr>
+    ##  1 <resample> <resample> 001  
+    ##  2 <resample> <resample> 002  
+    ##  3 <resample> <resample> 003  
+    ##  4 <resample> <resample> 004  
+    ##  5 <resample> <resample> 005  
+    ##  6 <resample> <resample> 006  
+    ##  7 <resample> <resample> 007  
+    ##  8 <resample> <resample> 008  
+    ##  9 <resample> <resample> 009  
+    ## 10 <resample> <resample> 010  
+    ## # … with 90 more rows
+
+``` r
+cv_df %>% pull(train) %>% .[[1]] %>% as_tibble
+```
+
+    ## # A tibble: 79 x 3
+    ##       id      x       y
+    ##    <int>  <dbl>   <dbl>
+    ##  1     1 0.266   1.11  
+    ##  2     2 0.372   0.764 
+    ##  3     3 0.573   0.358 
+    ##  4     4 0.908  -3.04  
+    ##  5     6 0.898  -1.99  
+    ##  6     7 0.945  -3.27  
+    ##  7     8 0.661  -0.615 
+    ##  8     9 0.629   0.0878
+    ##  9    10 0.0618  0.392 
+    ## 10    11 0.206   1.63  
+    ## # … with 69 more rows
+
+``` r
+cv_df =
+  cv_df %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+```
+
+try fitting the linear model with all these… and comparing them by
+`rmse`
+
+``` r
+cv_df = 
+  cv_df %>% 
+  mutate(linear_mod  = map(train, ~lm(y ~ x, data = .x)),
+         smooth_mod  = map(train, ~mgcv::gam(y ~ s(x), data = .x)),
+         wiggly_mod  = map(train, ~gam(y ~ s(x, k = 30), sp = 10e-6, data = .x))) %>% 
+  mutate(rmse_linear = map2_dbl(linear_mod, test, ~rmse(model = .x, data = .y)),
+         rmse_smooth = map2_dbl(smooth_mod, test, ~rmse(model = .x, data = .y)),
+         rmse_wiggly = map2_dbl(wiggly_mod, test, ~rmse(model = .x, data = .y)))
+```
+
+let us visualize this
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-27-1.png" width="90%" />
+
+**Smooth model wins\!\!**
+
+# Another example
