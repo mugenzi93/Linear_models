@@ -520,4 +520,252 @@ cv_df %>%
 
 **Smooth model wins\!\!**
 
-# Another example
+# Bootstrapping
+
+simulated dataset
+
+``` r
+n_samp = 250
+
+sim_df_const = 
+  tibble(
+    x = rnorm(n_samp, 1, 1),
+    error = rnorm(n_samp, 0, 1),
+    y = 2 + 3 * x + error
+  )
+
+sim_df_nonconst = sim_df_const %>% 
+  mutate(
+  error = error * .75 * x,
+  y = 2 + 3 * x + error
+)
+```
+
+here the second plot has a high variability as x-axis increases which
+means the estimate of the slope is right but we cannot be confident of
+the confidence interval.
+
+``` r
+sim_df = 
+  bind_rows(const = sim_df_const, nonconst = sim_df_nonconst, .id = "data_source") 
+
+sim_df %>% 
+  ggplot(aes(x = x, y = y)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm") +
+  facet_grid(~data_source) 
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-29-1.png" width="90%" />
+
+``` r
+lm(y ~ x, data = sim_df_const) %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+```
+
+| term        | estimate | std.error | statistic | p.value |
+| :---------- | -------: | --------: | --------: | ------: |
+| (Intercept) |    1.988 |      0.09 |    22.005 |       0 |
+| x           |    3.016 |      0.06 |    50.386 |       0 |
+
+``` r
+lm(y ~ x, data = sim_df_nonconst) %>% 
+  broom::tidy() %>% 
+  knitr::kable(digits = 3)
+```
+
+| term        | estimate | std.error | statistic | p.value |
+| :---------- | -------: | --------: | --------: | ------: |
+| (Intercept) |    2.002 |     0.101 |    19.818 |       0 |
+| x           |    3.015 |     0.067 |    45.044 |       0 |
+
+## How can i bootstrap
+
+write a function to draw a bootstrap sample based on the dataframe.
+
+Here, subjects are not put back in the original population.
+
+``` r
+sim_df_nonconst %>% 
+  sample_frac(size = 1) %>% 
+  arrange(x)
+```
+
+    ## # A tibble: 250 x 3
+    ##        x   error       y
+    ##    <dbl>   <dbl>   <dbl>
+    ##  1 -2.15  0.263  -4.18  
+    ##  2 -1.42  0.111  -2.15  
+    ##  3 -1.38 -1.71   -3.86  
+    ##  4 -1.26  1.30   -0.493 
+    ##  5 -1.26  1.79    0.0186
+    ##  6 -1.17  1.56    0.0643
+    ##  7 -1.16  0.0502 -1.42  
+    ##  8 -1.14 -0.688  -2.10  
+    ##  9 -1.13  0.377  -1.02  
+    ## 10 -1.05 -1.62   -2.75  
+    ## # … with 240 more rows
+
+here we sampling but subjects are put back in the population. yield
+different results.
+
+``` r
+sim_df_nonconst %>% 
+  sample_frac(size = 1, replace = T) %>% 
+  arrange(x)
+```
+
+    ## # A tibble: 250 x 3
+    ##        x   error       y
+    ##    <dbl>   <dbl>   <dbl>
+    ##  1 -2.15  0.263  -4.18  
+    ##  2 -2.15  0.263  -4.18  
+    ##  3 -1.26  1.30   -0.493 
+    ##  4 -1.26  1.79    0.0186
+    ##  5 -1.16  0.0502 -1.42  
+    ##  6 -1.16  0.0502 -1.42  
+    ##  7 -1.16  0.0502 -1.42  
+    ##  8 -1.14 -0.688  -2.10  
+    ##  9 -1.13  0.377  -1.02  
+    ## 10 -1.05 -1.62   -2.75  
+    ## # … with 240 more rows
+
+``` r
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+```
+
+Since there is replacement, the plots are different everytime we run the
+code.
+
+``` r
+boot_sample(sim_df_nonconst) %>% 
+  ggplot(aes(x = x, y = y)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm")
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-35-1.png" width="90%" />
+
+organize a dataframe… basically keeping track of the results we care
+about.
+
+``` r
+boot_straps = 
+  tibble(
+    strap_number = 1:1000,
+    strap_sample = rerun(1000, boot_sample(sim_df_nonconst))
+  )
+```
+
+do some kind of analysis. Again, here it is with replacement, so that is
+why we are getting different results everytime the code is ran.
+
+``` r
+bootstraps_results = 
+  boot_straps %>% 
+  mutate(
+    models = map(strap_sample, ~lm(y ~ x, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(-strap_sample, -models) %>% 
+  unnest(results)
+```
+
+summarize these results. calculating the standard deviation of the
+estimates. equivalent to the error term in the simple linear regression.
+basing inference on default procedures…. **read about bootstrapping on
+your own time**
+
+``` r
+bootstraps_results %>% 
+  group_by(term) %>% 
+  summarise(se = sd(estimate))
+```
+
+    ## # A tibble: 2 x 2
+    ##   term            se
+    ##   <chr>        <dbl>
+    ## 1 (Intercept) 0.0648
+    ## 2 x           0.0758
+
+## try the `modelr` package
+
+``` r
+sim_df_nonconst %>% 
+  bootstrap(n = 1000) %>% 
+  mutate(
+    models = map(strap, ~lm(y ~ x, data = .x) ),
+    results = map(models, broom::tidy)) %>% 
+  select(-strap, -models) %>% 
+  unnest(results) %>% 
+  group_by(term) %>% 
+  summarize(boot_se = sd(estimate))
+```
+
+    ## # A tibble: 2 x 2
+    ##   term        boot_se
+    ##   <chr>         <dbl>
+    ## 1 (Intercept)  0.0667
+    ## 2 x            0.0791
+
+## what if your assumptions are not wrong?
+
+with a different data input.
+
+``` r
+sim_df_const %>% 
+  modelr::bootstrap(n = 1000) %>% 
+  mutate(models = map(strap, ~lm(y ~ x, data = .x) ),
+         results = map(models, broom::tidy)) %>% 
+  select(-strap, -models) %>% 
+  unnest(results) %>% 
+  group_by(term) %>% 
+  summarize(boot_se = sd(estimate))
+```
+
+    ## # A tibble: 2 x 2
+    ##   term        boot_se
+    ##   <chr>         <dbl>
+    ## 1 (Intercept)  0.0934
+    ## 2 x            0.0611
+
+## the airbnb data
+
+``` r
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    boro = neighbourhood_group,
+    neighborhood = neighbourhood) %>% 
+  filter(boro != "Staten Island") %>% 
+  select(price, stars, boro, neighborhood, room_type)
+```
+
+``` r
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price, color = room_type)) + 
+  geom_point() 
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-42-1.png" width="90%" />
+
+``` r
+nyc_airbnb %>% 
+  filter(boro == "Manhattan") %>% 
+  modelr::bootstrap(n = 1000) %>% 
+  mutate(
+    models = map(strap, ~ lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)) %>% 
+  select(results) %>% 
+  unnest(results) %>% 
+  filter(term == "stars") %>% 
+  ggplot(aes(x = estimate)) + geom_density()
+```
+
+<img src="Linera_regression_files/figure-gfm/unnamed-chunk-43-1.png" width="90%" />
